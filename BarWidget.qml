@@ -56,6 +56,16 @@ BarWidget {
   property int prefBrightness: -1   // -1 = follow the theme
   property bool applying: false
 
+  // GMMK Pro keyboard (stock firmware, 320f:5044) via `glorious gmmk-pro`. Its lighting can't be
+  // read back, so the panel shows the saved choice (~/.local/state/glorious-mouse/keyboard.json).
+  readonly property string kbPrefFile: home + "/.local/state/glorious-mouse/keyboard.json"
+  property bool hasKeyboard: false
+  property string kbEffect: "breathing"
+  property int kbSpeed: 50
+  property int kbBrightness: -1     // -1 = follow the theme
+  property bool kbApplying: false
+  property string kbResult: ""
+
   property int level: -1
   property int status: 0
   property int mv: 0
@@ -181,22 +191,32 @@ BarWidget {
 
   Process {
     id: connProc
-    command: ["sh", "-c", "echo \"BIN=$(command -v glorious || echo \"$HOME/.local/bin/glorious\")\"; for d in /sys/bus/usb/devices/*; do [ \"$(cat $d/idVendor 2>/dev/null)\" = 3794 ] && cat $d/idProduct; done; cat \"$1\" 2>/dev/null; echo", "sh", root.prefFile]
+    command: ["sh", "-c", "echo \"BIN=$(command -v glorious || echo \"$HOME/.local/bin/glorious\")\"; for d in /sys/bus/usb/devices/*; do v=$(cat $d/idVendor 2>/dev/null); [ \"$v\" = 3794 ] || [ \"$v\" = 320f ] && echo \"$v:$(cat $d/idProduct)\"; done; echo \"MOUSE=$(cat \"$1\" 2>/dev/null)\"; echo \"KB=$(cat \"$2\" 2>/dev/null)\"", "sh", root.prefFile, root.kbPrefFile]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
         const b = text.match(/^BIN=(.+)$/m)
         if (b) root.bin = b[1]
-        root.hasDock = /\ba300\b/.test(text)
-        root.hasCable = /\ba3[12]2\b/.test(text)   // O3 a312, D3 a322
+        root.hasDock = /\b3794:a300\b/.test(text)
+        root.hasCable = /\b3794:a3[12]2\b/.test(text)   // O3 a312, D3 a322
+        root.hasKeyboard = /\b320f:5044\b/.test(text)
         if (!root.hasDock) { root.dockLevel = -1; root.dockStatus = 0; root.dockMv = 0 }
-        const j = text.match(/\{.*\}/)
+        const j = text.match(/^MOUSE=(\{.*\})$/m)
         if (j) {
           try {
-            const p = JSON.parse(j[0])
+            const p = JSON.parse(j[1])
             if (p.effect) root.prefEffect = p.effect
             if (p.speed) root.prefSpeed = p.speed
             root.prefBrightness = (p.brightness === null || p.brightness === undefined) ? -1 : p.brightness
+          } catch (e) {}
+        }
+        const k = text.match(/^KB=(\{.*\})$/m)
+        if (k && !root.kbApplying) {
+          try {
+            const q = JSON.parse(k[1])
+            if (q.effect) root.kbEffect = q.effect
+            if (q.speed !== undefined) root.kbSpeed = q.speed
+            root.kbBrightness = (q.brightness === null || q.brightness === undefined) ? -1 : q.brightness
           } catch (e) {}
         }
       }
@@ -267,6 +287,37 @@ BarWidget {
     }
   }
 
+  // The keyboard is its own HID device, so this can run alongside the mouse reads.
+  function setKeyboardLighting(effect, speed, brightness) {
+    root.kbEffect = effect
+    root.kbSpeed = speed
+    root.kbBrightness = brightness
+    root.kbApplying = true
+    kbProc.command = [root.lightingBin, "set", "--device", "keyboard", "--effect", effect,
+                      "--speed", String(speed), "--brightness", brightness < 0 ? "theme" : String(brightness)]
+    if (kbProc.running) kbRetry.start()
+    else kbProc.running = true
+  }
+
+  Timer {
+    id: kbRetry
+    interval: 300
+    onTriggered: if (kbProc.running) kbRetry.start(); else kbProc.running = true
+  }
+
+  Process {
+    id: kbProc
+    command: ["true"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        const m = text.match(/^keyboard(?: failed)?: (.+)$/m)
+        root.kbResult = m ? m[0] : ""
+      }
+    }
+    onRunningChanged: if (!running) root.kbApplying = false
+  }
+
   Process {
     id: applyProc
     command: ["true"]
@@ -296,6 +347,13 @@ BarWidget {
     function show() { root.open() }
     function hide() { root.close() }
     function toggle() { root.toggle() }
+    function mouse() { root.openTab("mouse") }
+    function keyboard() { root.openTab("keyboard") }
+  }
+
+  function openTab(tab) {
+    if (panelLoader.item) panelLoader.item.tab = tab
+    if (!root.opened) root.open()
   }
 
   Text {

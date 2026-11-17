@@ -1,11 +1,13 @@
 # Glorious Mouse for Omarchy
 
 An [Omarchy](https://omarchy.org) bar widget for the **Glorious Model O3 Wireless**: battery for the
-mouse, its swap pack and the charging dock, plus lighting that follows your Omarchy theme.
+mouse, its swap pack and the charging dock, plus lighting that follows your Omarchy theme. If a
+**GMMK Pro** keyboard is plugged in, a Keyboard tab controls its lighting too.
 
 <p>
 <img src="docs/bar.png" height="38" alt="Bar item: mouse 96%"><br><br>
-<img src="docs/panel.png" width="400" alt="Panel: mouse, dock and backup battery, lighting effects, speed and brightness">
+<img src="docs/panel.png" width="380" alt="Mouse tab: mouse, dock and backup battery, lighting effects, speed and brightness">
+<img src="docs/keyboard.png" width="380" alt="Keyboard tab: GMMK Pro lighting effects, speed and brightness">
 </p>
 
 - **Bar:** the mouse battery %, red at 30% or below, dimmed while the mouse sleeps.
@@ -14,6 +16,9 @@ mouse, its swap pack and the charging dock, plus lighting that follows your Omar
 - **Lighting:** pick from 12 effects, plus speed and brightness. The colour comes from the
   current theme (its `keyboard.rgb`, else its accent) and is re-applied on every
   `omarchy theme set`. The DPI-stage LEDs get the theme's neighbouring hues.
+- **Keyboard tab (GMMK Pro):** shows only when a GMMK Pro is connected. Pick from 19 effects, with
+  speed and brightness. Most effects run in the theme colour, and your choice is re-applied on
+  theme changes too. Click the tabs, or press Tab / Shift+Tab, to switch between them.
 
 It talks to the mouse through [glorious-linux](https://github.com/Virel0/glorious-linux). Nothing
 here needs root.
@@ -53,6 +58,19 @@ Two options:
 
 Updates: `omarchy plugin update io.github.mattvv.glorious-mouse`.
 
+## GMMK Pro
+
+This tab needs a glorious-linux with `glorious gmmk-pro`, which is
+[proposed upstream](https://github.com/Virel0/glorious-linux) and not in a release yet. It works with
+the keyboard's stock firmware (`320f:5044`); a board flashed with QMK isn't covered, so use VIA or
+OpenRGB there.
+
+- The keyboard can't report its lighting, so the tab shows your last choice.
+- In one colour, an animated effect shows as moving brightness, which is subtler than its rainbow
+  version. A few effects, such as Wave 2, keep their own colours.
+- Open the panel on a tab from a script or keybinding:
+  `omarchy-shell io.github.mattvv.glorious-mouse keyboard` (or `mouse`).
+
 ## Firmware note (O3)
 
 O3s shipped with mouse firmware **1.0.1** ignore every lighting effect except `off`. The battery
@@ -73,10 +91,11 @@ The panel uses `glorious-mouse-lighting`, which is in the plugin folder
 glorious-mouse-lighting show                      # what would be sent for the current theme
 glorious-mouse-lighting set --effect wave --speed 70
 glorious-mouse-lighting set --brightness theme    # or 0-100
+glorious-mouse-lighting set --device keyboard --effect ripple --speed 60
 glorious-mouse-lighting apply                     # re-apply (what the hooks run)
 ```
 
-Your choice is saved in `~/.local/state/glorious-mouse/lighting.json`.
+Your choices are saved in `~/.local/state/glorious-mouse/lighting.json` and `keyboard.json`.
 
 ## Notes
 

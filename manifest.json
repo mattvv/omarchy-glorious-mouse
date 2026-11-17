@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.mattvv.glorious-mouse",
   "name": "Glorious Mouse",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Matt Van",
   "license": "MIT",
-  "description": "Glorious Model O3 Wireless battery, dock and theme-following lighting, via glorious-linux.",
+  "description": "Glorious Model O3 Wireless battery and dock, plus mouse and GMMK Pro lighting that follows the Omarchy theme, via glorious-linux.",
   "kinds": [
     "bar-widget"
   ],
@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "Glorious Mouse",
-    "description": "Mouse, swap-pack and dock battery; click for lighting controls",
+    "description": "Mouse, swap-pack and dock battery; click for mouse and keyboard lighting",
     "category": "System",
     "allowMultiple": false,
     "defaultSection": "right"
