@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import tomllib
 from pathlib import Path
 
@@ -111,11 +112,16 @@ def run(cmd: list[str]) -> tuple[bool, str]:
 
 def dpi_command(bin_: str, pool: list[str]) -> list[str] | str:
     """The DPI command rewrites the stage values too: read them first and resend them unchanged."""
-    try:
-        info = subprocess.run([bin_, "mouse", "info"], capture_output=True, text=True, timeout=10).stdout
-    except subprocess.TimeoutExpired:
-        info = ""
-    m = re.search(r"DPI stages:\s*(.+?)\s*\(", info)
+    m = None
+    for attempt in range(3):  # right after a lighting write the mouse can miss one read
+        try:
+            info = subprocess.run([bin_, "mouse", "info"], capture_output=True, text=True, timeout=10).stdout
+        except subprocess.TimeoutExpired:
+            info = ""
+        m = re.search(r"DPI stages:\s*(.+?)\s*\(", info)
+        if m:
+            break
+        time.sleep(0.5)
     if not m:
         return "DPI colours skipped (mouse asleep? move it and re-apply)"
     stages, active = [], 1
