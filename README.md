@@ -61,7 +61,7 @@ Updates: `omarchy plugin update io.github.mattvv.glorious-mouse`.
 ## GMMK Pro
 
 This tab needs a glorious-linux with `glorious gmmk-pro`, which is
-[proposed upstream](https://github.com/Virel0/glorious-linux) and not in a release yet. It works with
+[proposed upstream](https://github.com/Virel0/glorious-linux/pull/14) and not in a release yet. It works with
 the keyboard's stock firmware (`320f:5044`); a board flashed with QMK isn't covered, so use VIA or
 OpenRGB there.
 
