@@ -1,0 +1,7 @@
+#!/bin/bash
+# Installed by omarchy-glorious-mouse: re-applies the mouse lighting in the new theme's colour
+# (theme-set) and after login (post-boot). Quiet no-op if the plugin or the mouse is missing.
+script="$HOME/.config/omarchy/plugins/io.github.mattvv.glorious-mouse/glorious-mouse-lighting"
+[[ -x $script ]] || exit 0
+"$script" apply >/dev/null 2>&1 &
+exit 0

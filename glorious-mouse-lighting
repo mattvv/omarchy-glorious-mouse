@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+"""Glorious Model O3 / D3 Wireless lighting that follows the Omarchy theme.
+
+  glorious-mouse-lighting apply                 apply the saved effect in the current theme colour
+  glorious-mouse-lighting set --effect wave [--speed 50] [--brightness 70|theme]
+  glorious-mouse-lighting show                  print what `apply` would send, touch nothing
+
+The mouse's lighting command carries one colour, so the effect uses the theme's main colour
+(the theme's keyboard.rgb if it has one, else its accent). The theme's other hues go to the DPI
+stage indicator, one per stage. Needs glorious-linux (https://github.com/Virel0/glorious-linux)
+and, on the O3, mouse firmware 1.3.3 or later. Stdlib only.
+"""
+from __future__ import annotations
+
+import argparse
+import colorsys
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+
+HOME = Path.home()
+PREF = HOME / ".local/state/glorious-mouse/lighting.json"
+THEME_DIRS = [HOME / ".local/state/omarchy/current/theme", HOME / ".config/omarchy/current/theme"]
+EFFECTS = ["solid", "breathing-single", "breathing", "seamless-breathing", "fairies", "ghost",
+           "cascade", "prismatic", "wave", "ripple", "rainbow", "off"]
+HUE_NAMES = ["red", "orange", "yellow", "green", "cyan", "blue", "magenta"]
+ANALOGOUS_DEG = 80      # DPI colours: theme hues within this many degrees of the main colour
+MIN_SAT = 0.18          # below this a colour reads as grey on an LED
+LED_SAT = 0.8           # small LEDs wash out: lift saturation to at least this
+BRIGHT, BRIGHT_GREY = 70, 35
+
+
+def glorious() -> str | None:
+    for cand in (os.environ.get("GLORIOUS"), shutil.which("glorious"), str(HOME / ".local/bin/glorious")):
+        if cand and Path(cand).exists():
+            return cand
+    return None
+
+
+def parse_hex(v: str) -> tuple[int, int, int] | None:
+    m = re.fullmatch(r"\s*#?([0-9a-fA-F]{6})\s*", v or "")
+    return tuple(int(m.group(1)[i:i + 2], 16) for i in (0, 2, 4)) if m else None
+
+
+def hsv(rgb):
+    return colorsys.rgb_to_hsv(*(c / 255 for c in rgb))
+
+
+def vivid(rgb, grey: bool) -> str:
+    h, s, _ = hsv(rgb)
+    s = min(s, 0.1) if grey else max(s, LED_SAT)
+    return "".join(f"{round(c * 255):02x}" for c in colorsys.hsv_to_rgb(h, s, 1.0))
+
+
+def theme_colors() -> tuple[str, list[str], int, str]:
+    tdir = next((d for d in THEME_DIRS if (d / "colors.toml").exists()), None)
+    if tdir is None:
+        sys.exit("no Omarchy theme found (looked in ~/.local/state and ~/.config/omarchy/current)")
+    raw = tomllib.loads((tdir / "colors.toml").read_text())
+    kb = tdir / "keyboard.rgb"
+    primary = (parse_hex(kb.read_text()) if kb.exists() else None) or parse_hex(raw.get("accent", "")) \
+        or parse_hex(raw.get("blue", "")) or (255, 255, 255)
+    ph, ps, _ = hsv(primary)
+    grey = ps < MIN_SAT
+    accents: list[tuple[float, str]] = []
+    for name in HUE_NAMES:
+        rgb = parse_hex(raw.get(name, ""))
+        if not rgb or grey:
+            continue
+        h, s, v = hsv(rgb)
+        dist = min(abs(h - ph), 1 - abs(h - ph)) * 360
+        if s >= MIN_SAT and v > 0.25 and dist <= ANALOGOUS_DEG:
+            accents.append((dist, vivid(rgb, False)))
+    main = vivid(primary, grey)
+    pool = list(dict.fromkeys([main, *(c for _, c in sorted(accents))]))
+    name = (tdir.parent / "theme.name").read_text().strip() if (tdir.parent / "theme.name").exists() else "?"
+    return main, pool, BRIGHT_GREY if grey else BRIGHT, name
+
+
+def load_pref() -> dict:
+    pref = {"effect": "solid", "speed": 50, "brightness": None}
+    try:
+        pref.update(json.loads(PREF.read_text()))
+    except (OSError, ValueError):
+        pass
+    if pref.get("effect") not in EFFECTS:
+        pref["effect"] = "solid"
+    return pref
+
+
+def save_pref(pref: dict) -> None:
+    PREF.parent.mkdir(parents=True, exist_ok=True)
+    tmp = PREF.with_suffix(".tmp")
+    tmp.write_text(json.dumps(pref))
+    os.replace(tmp, PREF)
+
+
+def run(cmd: list[str]) -> tuple[bool, str]:
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+    except subprocess.TimeoutExpired:
+        return False, "timed out"
+    out = (p.stderr or p.stdout).strip().splitlines()
+    return p.returncode == 0, out[-1] if out else ""
+
+
+def dpi_command(bin_: str, pool: list[str]) -> list[str] | str:
+    """The DPI command rewrites the stage values too: read them first and resend them unchanged."""
+    try:
+        info = subprocess.run([bin_, "mouse", "info"], capture_output=True, text=True, timeout=10).stdout
+    except subprocess.TimeoutExpired:
+        info = ""
+    m = re.search(r"DPI stages:\s*(.+?)\s*\(", info)
+    if not m:
+        return "DPI colours skipped (mouse asleep? move it and re-apply)"
+    stages, active = [], 1
+    for i, tok in enumerate(t.strip() for t in m.group(1).split("/")):
+        if tok == "off":
+            break
+        if tok.startswith("*"):
+            active, tok = i + 1, tok[1:]
+        if not tok.isdigit():
+            return f"DPI colours skipped (unexpected stage {tok!r})"
+        stages.append(tok)
+    if not stages:
+        return "DPI colours skipped (no stages)"
+    colors = [pool[i % len(pool)] for i in range(len(stages))]
+    return [bin_, "mouse", "dpi", ",".join(stages), "--active", str(active), "--colors", ",".join(colors)]
+
+
+def apply(dry: bool) -> int:
+    bin_ = glorious()
+    if not bin_:
+        print("glorious not found - install glorious-linux first", file=sys.stderr)
+        return 1
+    main, pool, theme_bri, theme = theme_colors()
+    pref = load_pref()
+    bri = pref["brightness"] if isinstance(pref.get("brightness"), int) else theme_bri
+    speed = max(10, min(100, int(pref.get("speed") or 50)))
+    light = [bin_, "mouse", "lighting", pref["effect"], "--color", main,
+             "--brightness", str(max(0, min(100, bri))), "--speed", str(speed)]
+    print(f"theme {theme}: #{main} @{bri}%  DPI colours {pool}")
+    if dry:
+        print("would run:", " ".join(light[1:]))
+        dpi = dpi_command(bin_, pool)
+        print("would run:", " ".join(dpi[1:]) if isinstance(dpi, list) else dpi)
+        return 0
+    ok, msg = run(light)
+    if not ok:
+        print(f"lighting failed: {msg} (mouse asleep? move it and re-apply)", file=sys.stderr)
+        return 1
+    print(f"lighting: {pref['effect']} #{main} @{bri}% speed {speed}")
+    dpi = dpi_command(bin_, pool)
+    if isinstance(dpi, str):
+        print(dpi)
+        return 0
+    ok, msg = run(dpi)
+    print(f"DPI colours: {dpi[-1]}" if ok else f"DPI colours failed: {msg}")
+    return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd")
+    sub.add_parser("apply")
+    sub.add_parser("show")
+    s = sub.add_parser("set")
+    s.add_argument("--effect", choices=EFFECTS)
+    s.add_argument("--speed", type=int)
+    s.add_argument("--brightness", help="0-100, or 'theme' to follow the theme")
+    a = ap.parse_args()
+    if a.cmd == "set":
+        pref = load_pref()
+        if a.effect:
+            pref["effect"] = a.effect
+        if a.speed is not None:
+            pref["speed"] = max(10, min(100, a.speed))
+        if a.brightness is not None:
+            pref["brightness"] = None if a.brightness == "theme" else max(0, min(100, int(a.brightness)))
+        save_pref(pref)
+        return apply(dry=False)
+    return apply(dry=a.cmd == "show")
+
+
+if __name__ == "__main__":
+    sys.exit(main())
